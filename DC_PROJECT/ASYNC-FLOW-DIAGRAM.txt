@@ -1,0 +1,193 @@
+# ASYNC POSTMAN TESTING FLOW
+
+## Setup (1 min)
+┌─────────────────────────────────────┐
+│  Import postman-collection.json     │
+│  into Postman                       │
+│  File → Import → Select JSON file   │
+└─────────────────────────────────────┘
+           ↓
+  baseUrl automatically set to:
+        {{baseUrl}} = http://localhost:8000
+
+
+## Testing Sequence (Follow this order)
+
+STEP 1: REGISTER USER
+┌──────────────────────────────────────────────┐
+│ POST {{baseUrl}}/users/register          |
+│                                              │
+│ Body:                                        │
+│ {                                            │
+│   "email": "testuser@example.com",           │
+│   "password": "password123",                 │
+│   "name": "Test User"                        │
+│ }                                            │
+└──────────────────────────────────────────────┘
+              ↓
+    ✅ Response 200-201
+    ✅ {{user_id}} saved automatically
+
+
+STEP 2: LIST PRODUCTS
+┌──────────────────────────────────────────────┐
+│ GET {{baseUrl}}/products                 |
+│                                              │
+│ (No body needed)                             │
+└──────────────────────────────────────────────┘
+              ↓
+    ✅ Response 200
+    ✅ [Array of products returned]
+    ✅ {{product_id}} saved automatically
+
+
+STEP 3: CREATE ORDER (⭐ ASYNC KEY TEST)
+┌──────────────────────────────────────────────┐
+│ POST {{baseUrl}}/orders                  |
+│                                              │
+│ Body:                                        │
+│ {                                            │
+│   "user_id": "{{user_id}}",                  │
+│   "product_id": "{{product_id}}",            │
+│   "quantity": 2                              │
+│ }                                            │
+└──────────────────────────────────────────────┘
+              ↓
+  ⏱️  WATCH RESPONSE TIME:
+    ✅ ~80-120ms (SUPER FAST!)
+    
+  ✅ Status: 200-201
+  ✅ JSON Response:
+    {
+      "id": "order_id_xyz",
+      "status": "pending_payment",        ← KEY: NOT paid yet!
+      "transaction_id": null,              ← No payment yet
+      "amount": 599.99,
+      "created_at": "2024-01-01..."
+    }
+  ✅ {{order_id}} saved automatically
+
+
+STEP 4: CHECK STATUS IMMEDIATELY
+┌──────────────────────────────────────────────┐
+│ GET {{baseUrl}}/api/orders?user_id={{user_id}}
+│                                              │
+│ Check within 1 second of creating order      │
+└──────────────────────────────────────────────┘
+              ↓
+    ✅ Response 200
+    ✅ Order Status: "pending_payment"    ← Still waiting
+    ✅ transaction_id: null                ← Not assigned yet
+    
+    📝 This is NORMAL! Payment is being
+       processed in RabbitMQ in the background 🔄
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⏳ WAIT 3 SECONDS (This is important!)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+During wait, in background:
+  1️⃣ Payment Service reads message from queue
+  2️⃣ Processes payment asynchronously  
+  3️⃣ Updates order status in database
+  4️⃣ No blocking, no waiting 🚀
+
+
+STEP 5: CHECK STATUS AFTER 3 SECONDS (🎉 PROOF OF ASYNC)
+┌──────────────────────────────────────────────┐
+│ GET {{baseUrl}}/api/orders?user_id={{user_id}}
+│                                              │
+│ Run after 3-second wait                      │
+└──────────────────────────────────────────────┘
+              ↓
+    ✅ Response 200
+    ✅ Order Status: "paid"               ← CHANGED! ✅
+    ✅ transaction_id: "txn_abc123xyz"    ← ASSIGNED! ✅
+    ✅ amount: 599.99
+    ✅ created_at: "2024-01-01..."
+    
+    🎉 SUCCESS! Status automatically updated
+       by asynchronous Payment Service!
+
+
+═════════════════════════════════════════════════════════════
+                    RESULT COMPARISON
+═════════════════════════════════════════════════════════════
+
+STEP 3 (Immediate):
+  Status: pending_payment
+  Response Time: 80-120ms
+  Transaction ID: null
+  
+  👇 3 seconds pass (RabbitMQ processing) 👇
+
+STEP 5 (After 3 sec):
+  Status: paid ✅ (CHANGED!)
+  Transaction ID: txn_xyz ✅ (ASSIGNED!)
+  
+  ╔═══════════════════════════════════════════════════════╗
+  ║ THIS TRANSITION PROVES ASYNC ARCHITECTURE WORKS! 🎉  ║
+  ║                                                       ║
+  ║ Order creation doesn't wait for payment              ║
+  ║ Payment happens asynchronously in background         ║
+  ║ Order updates automatically when payment completes   ║
+  ╚═══════════════════════════════════════════════════════╝
+
+
+═════════════════════════════════════════════════════════════
+                 MONITORING IN TERMINAL
+═════════════════════════════════════════════════════════════
+
+While running Postman tests, open terminal and run:
+
+$ docker logs -f payment-service
+
+Expected output:
+  
+  Attempting to connect to RabbitMQ...
+  Connected to RabbitMQ
+  Channel created
+  Queue declared
+  🚀 Payment consumer started, waiting for messages...
+  
+  (Then when you POST an order...)
+  
+  Processing payment for order_id=xyz, amount=599.99
+  ✅ Payment successful for order_id=xyz
+  Updated order xyz status to: paid
+  Message acknowledged - continuing to listen...
+
+
+═════════════════════════════════════════════════════════════
+                   POSTMAN TEST RESULTS
+═════════════════════════════════════════════════════════════
+
+All tests automatically validate:
+
+✅ Status codes (200, 201)
+✅ Response time < 200ms  
+✅ Order status transitions
+✅ Transaction ID assignment
+✅ Required fields in responses
+
+Check green checkmarks on each request!
+
+
+═════════════════════════════════════════════════════════════
+                  QUICK REFERENCE
+═════════════════════════════════════════════════════════════
+
+BASE URL:        {{baseUrl}} = http://localhost:8000
+ENDPOINTS:       /users/register, /products, /orders (NO /api/ prefix)
+USER ID:         {{user_id}} (saved from Step 1)
+PRODUCT ID:      {{product_id}} (saved from Step 2)
+ORDER ID:        {{order_id}} (saved from Step 3)
+
+RabbitMQ Queue:  payment_queue
+RabbitMQ Status: http://localhost:15672 (guest/guest)
+Payment Wait:    3 seconds typical (max 5)
+
+ASYNC PROOF:     Order creation <150ms, payment 2-3sec later
+COLLECTION FILE: postman-collection.json (import into Postman)
+FULL GUIDE:      POSTMAN-GUIDE.md (this directory)

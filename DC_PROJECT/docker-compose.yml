@@ -1,0 +1,141 @@
+services:
+  api-gateway:
+    build: ./gateway
+    container_name: api-gateway
+    environment:
+      USER_SERVICE_URL: http://user-service:8001
+      PRODUCT_SERVICE_URL: http://product-service:8002
+      ORDER_SERVICE_URL: http://order-service:8003
+      JWT_SECRET: supersecretkey
+      JWT_ALGORITHM: HS256
+    ports:
+      - "8000:8000"
+    depends_on:
+      - user-service
+      - product-service
+      - order-service
+
+  user-service:
+    build: ./services/user-service
+    container_name: user-service
+    environment:
+      USER_DB_HOST: user-db
+      USER_DB_PORT: 3306
+      USER_DB_NAME: user_db
+      USER_DB_USER: root
+      USER_DB_PASSWORD: root
+      JWT_SECRET: supersecretkey
+      JWT_ALGORITHM: HS256
+    ports:
+      - "8001:8001"
+    depends_on:
+      - user-db
+
+  product-service:
+    build: ./services/product-service
+    container_name: product-service
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DB_NAME: product_db
+    ports:
+      - "8002:8002"
+    depends_on:
+      - mongo
+
+  payment-service:
+    build: ./services/payment-service
+    container_name: payment-service
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      PAYMENT_FAIL_RATE: 0.3
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: guest
+      RABBITMQ_PASSWORD: guest
+      ORDER_SERVICE_URL: http://order-service:8003
+      PRODUCT_SERVICE_URL: http://product-service:8002
+    ports:
+      - "8004:8004"
+    depends_on:
+      - redis
+      - rabbitmq
+
+  order-service:
+    build: ./services/order-service
+    container_name: order-service
+    environment:
+      ORDER_DB_HOST: order-db
+      ORDER_DB_PORT: 3306
+      ORDER_DB_NAME: order_db
+      ORDER_DB_USER: root
+      ORDER_DB_PASSWORD: root
+      PRODUCT_SERVICE_URL: http://product-service:8002
+      PAYMENT_SERVICE_URL: http://payment-service:8004
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: guest
+      RABBITMQ_PASSWORD: guest
+    ports:
+      - "8003:8003"
+    depends_on:
+      - order-db
+      - product-service
+      - rabbitmq
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: message-queue
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  user-db:
+    image: mysql:8.0
+    container_name: user-db
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: user_db
+    ports:
+      - "3307:3306"
+    volumes:
+      - user_db_data:/var/lib/mysql
+
+  order-db:
+    image: mysql:8.0
+    container_name: order-db
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: order_db
+    ports:
+      - "3308:3306"
+    volumes:
+      - order_db_data:/var/lib/mysql
+
+  mongo:
+    image: mongo:7
+    container_name: product-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  redis:
+    image: redis:7-alpine
+    container_name: payment-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  user_db_data:
+  order_db_data:
+  mongo_data:
+  redis_data:
+  rabbitmq_data:

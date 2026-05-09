@@ -1,0 +1,5 @@
+Method,Name,Error,Occurrences
+GET,admin list products,RemoteDisconnected('Remote end closed connection without response'),1
+GET,get product,HTTPError('400 Client Error: Bad Request for url: get product'),988
+POST,register,HTTPError('400 Client Error: Bad Request for url: register'),50
+POST,create order,HTTPError('404 Client Error: Not Found for url: create order'),954
