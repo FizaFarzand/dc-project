@@ -32,27 +32,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // ---------------- GET CURRENT USER ----------------
   const refreshUser = useCallback(async () => {
-    const t = localStorage.getItem("access_token");
-    if (!t) {
+    const token = localStorage.getItem("access_token");
+    if (!token) {
       setUser(null);
       return;
     }
+
     const { data } = await api.get<UserMe>("/me");
     setUser(data);
   }, []);
 
+  // ---------------- LOGIN ----------------
   const doLogin = useCallback(async (email: string, password: string) => {
     const { data } = await api.post<{ access_token: string }>("/login", {
       email,
       password,
     });
+
     localStorage.setItem("access_token", data.access_token);
     setToken(data.access_token);
+
     const { data: me } = await api.get<UserMe>("/me");
     setUser(me);
   }, []);
 
+  // ---------------- REGISTER ----------------
   const doRegister = useCallback(
     async (name: string, email: string, password: string) => {
       await api.post("/register", {
@@ -61,19 +67,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         password,
         role: "customer",
       });
+
       await doLogin(email, password);
     },
     [doLogin],
   );
 
+  // ---------------- AUTO LOAD USER ----------------
   useEffect(() => {
     let cancelled = false;
+
     (async () => {
-      if (!token) {
+      const t = localStorage.getItem("access_token");
+
+      if (!t) {
         setUser(null);
         setLoading(false);
         return;
       }
+
       try {
         const { data } = await api.get<UserMe>("/me");
         if (!cancelled) setUser(data);
@@ -87,11 +99,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!cancelled) setLoading(false);
       }
     })();
+
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, []);
 
+  // ---------------- WRAPPERS ----------------
   const login = useCallback(
     async (email: string, password: string) => {
       try {

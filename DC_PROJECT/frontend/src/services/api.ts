@@ -1,9 +1,9 @@
 import axios, { AxiosError } from "axios";
 
-// Railway backend URL
+// 🚨 IMPORTANT: NO /api HERE
 const baseURL =
   import.meta.env.VITE_API_URL?.replace(/\/$/, "") ||
-  "https://dc-project-production-dc01.up.railway.app/api";
+  "https://dc-project-production-dc01.up.railway.app";
 
 export const api = axios.create({
   baseURL,
@@ -43,7 +43,7 @@ api.interceptors.response.use(
 export function getErrorMessage(err: unknown): string {
   if (axios.isAxiosError(err)) {
     const status = err.response?.status;
-    const data = err.response?.data as any;
+    const data: any = err.response?.data;
 
     if (data?.detail) {
       return typeof data.detail === "string"
