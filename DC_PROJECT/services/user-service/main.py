@@ -13,6 +13,7 @@ from sqlalchemy import Column, Integer, String, create_engine
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import declarative_base, sessionmaker
 
+# ---------------- APP ----------------
 app = FastAPI(title="User Service")
 
 app.add_middleware(
@@ -23,24 +24,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DB_HOST = os.getenv("MYSQLHOST")
-DB_PORT = os.getenv("MYSQLPORT")
-DB_NAME = os.getenv("MYSQLDATABASE")
-DB_USER = os.getenv("MYSQLUSER")
-DB_PASSWORD = os.getenv("MYSQLPASSWORD")
+# ---------------- ENV ----------------
+DATABASE_URL = os.getenv("MYSQL_URL")
+
 JWT_SECRET = os.getenv("JWT_SECRET", "supersecretkey")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 
-if not all([DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD]):
-    raise Exception("Missing database environment variables")
+# IMPORTANT: fail fast if DB not configured
+if not DATABASE_URL:
+    raise Exception("MYSQL_URL is missing in environment variables")
 
-DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-
+# ---------------- DB ----------------
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 Base = declarative_base()
 
-
+# ---------------- MODEL ----------------
 class User(Base):
     __tablename__ = "users"
 
@@ -50,7 +49,7 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     role = Column(String(20), default="customer")
 
-
+# ---------------- SCHEMAS ----------------
 class RegisterRequest(BaseModel):
     name: str
     email: EmailStr
@@ -62,16 +61,26 @@ class LoginRequest(BaseModel):
     email: EmailStr
     password: str
 
-
+# ---------------- SECURITY ----------------
 def hash_password(password: str) -> str:
     salt = secrets.token_hex(16)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100000).hex()
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode(),
+        salt.encode(),
+        100000
+    ).hex()
     return f"{salt}${digest}"
 
 
 def verify_password(password: str, stored: str) -> bool:
     salt, expected = stored.split("$", 1)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100000).hex()
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode(),
+        salt.encode(),
+        100000
+    ).hex()
     return hmac.compare_digest(digest, expected)
 
 
@@ -80,21 +89,23 @@ def create_token(user):
         "user_id": user.id,
         "email": user.email,
         "role": user.role,
-        "exp": datetime.utcnow() + timedelta(hours=24)
+        "exp": datetime.utcnow() + timedelta(hours=24),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
-
+# ---------------- STARTUP ----------------
 @app.on_event("startup")
 def startup():
+    # retry DB connection (Railway sometimes slow start)
     for _ in range(30):
         try:
             Base.metadata.create_all(bind=engine)
+            print("Database connected successfully")
             return
         except OperationalError:
             sleep(2)
 
-
+# ---------------- ROUTES ----------------
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "user-service"}
@@ -108,7 +119,7 @@ def register(data: RegisterRequest):
             name=data.name,
             email=data.email,
             password_hash=hash_password(data.password),
-            role=data.role
+            role=data.role,
         )
         db.add(user)
         db.commit()
@@ -116,7 +127,7 @@ def register(data: RegisterRequest):
         return {"id": user.id, "name": user.name, "email": user.email}
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=400, detail="Email exists")
+        raise HTTPException(status_code=400, detail="Email already exists")
     finally:
         db.close()
 
@@ -126,8 +137,10 @@ def login(data: LoginRequest):
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.email == data.email).first()
+
         if not user or not verify_password(data.password, user.password_hash):
             raise HTTPException(status_code=401, detail="Invalid credentials")
+
         return {"access_token": create_token(user)}
     finally:
         db.close()
@@ -136,13 +149,14 @@ def login(data: LoginRequest):
 @app.get("/me")
 def me(authorization: str = Header(None)):
     if not authorization:
-        raise HTTPException(status_code=401)
+        raise HTTPException(status_code=401, detail="Missing token")
 
     token = authorization.replace("Bearer ", "")
+
     try:
         return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
     except JWTError:
-        raise HTTPException(status_code=401)
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 
 @app.get("/users")
