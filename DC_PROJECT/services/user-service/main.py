@@ -1,158 +1,167 @@
 import os
-import random
-import uuid
-from datetime import datetime
+import hashlib
+import hmac
+import secrets
+from datetime import datetime, timedelta
+from time import sleep
 
-import redis
-import httpx
-from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi import FastAPI, Header, HTTPException
+from jose import JWTError, jwt
+from pydantic import BaseModel, EmailStr
+from sqlalchemy import Column, Integer, String, create_engine
+from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.orm import declarative_base, sessionmaker
 
-app = FastAPI(title="Payment Service")
+app = FastAPI(title="User Service")
 
-# ENV VARIABLES
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+DB_HOST = os.getenv("USER_DB_HOST", "localhost")
+DB_PORT = os.getenv("USER_DB_PORT", "3306")
+DB_NAME = os.getenv("USER_DB_NAME", "user_db")
+DB_USER = os.getenv("USER_DB_USER", "root")
+DB_PASSWORD = os.getenv("USER_DB_PASSWORD", "root")
+JWT_SECRET = os.getenv("JWT_SECRET", "supersecretkey")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 
-PAYMENT_FAIL_RATE = float(os.getenv("PAYMENT_FAIL_RATE", "0.3"))
-
-ORDER_SERVICE_URL = os.getenv("ORDER_SERVICE_URL", "http://localhost:8003")
-PRODUCT_SERVICE_URL = os.getenv("PRODUCT_SERVICE_URL", "http://localhost:8002")
-
-# Redis (optional but kept for audit trail)
-r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
-
-
-# -------------------------
-# REQUEST MODEL
-# -------------------------
-class PaymentRequest(BaseModel):
-    order_id: int
-    amount: float
+DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
 
 
-# -------------------------
-# CORE PAYMENT LOGIC
-# -------------------------
-def process_payment(order_id: int, amount: float) -> dict:
-    success = random.random() > PAYMENT_FAIL_RATE
+class User(Base):
+    __tablename__ = "users"
 
-    transaction_id = f"txn_{uuid.uuid4().hex[:12]}"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    email = Column(String(120), unique=True, index=True, nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    role = Column(String(20), default="customer", nullable=False)
 
+
+class RegisterRequest(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+    role: str = "customer"
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000).hex()
+    return f"{salt}${digest}"
+
+
+def verify_password(password: str, stored: str) -> bool:
+    try:
+        salt, expected = stored.split("$", 1)
+    except ValueError:
+        return False
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000).hex()
+    return hmac.compare_digest(digest, expected)
+
+
+def create_access_token(user: User) -> str:
     payload = {
-        "order_id": order_id,
-        "amount": amount,
-        "success": success,
-        "transaction_id": transaction_id,
-        "timestamp": datetime.utcnow().isoformat(),
+        "user_id": user.id,
+        "email": user.email,
+        "role": user.role,
+        "exp": datetime.utcnow() + timedelta(hours=24),
     }
-
-    # store in Redis (audit trail)
-    try:
-        r.hset(
-            f"payment:{order_id}",
-            mapping={k: str(v) for k, v in payload.items()}
-        )
-    except Exception as e:
-        print(f"Redis error: {e}")
-
-    return payload
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
-# -------------------------
-# ORDER UPDATE
-# -------------------------
-def update_order_status(order_id: int, status: str, transaction_id: str):
-    try:
-        response = httpx.patch(
-            f"{ORDER_SERVICE_URL}/orders/{order_id}/status",
-            json={
-                "status": status,
-                "transaction_id": transaction_id
-            },
-            timeout=10,
-        )
-        response.raise_for_status()
-        return response.json()
-    except Exception as exc:
-        print(f"Error updating order status: {exc}")
-        return None
-
-
-# -------------------------
-# RESTORE STOCK ON FAILURE
-# -------------------------
-def restore_stock_for_order(order_id: int):
-    try:
-        order_resp = httpx.get(
-            f"{ORDER_SERVICE_URL}/orders/{order_id}",
-            timeout=10,
-        )
-        order_resp.raise_for_status()
-        order = order_resp.json()
-
-        product_id = order.get("product_id")
-        quantity = order.get("quantity")
-
-        if not product_id or quantity is None:
+@app.on_event("startup")
+def startup():
+    # MySQL container can be up before it is ready to accept connections.
+    for attempt in range(30):
+        try:
+            Base.metadata.create_all(bind=engine)
             return
-
-        product_resp = httpx.get(
-            f"{PRODUCT_SERVICE_URL}/products/{product_id}",
-            timeout=10,
-        )
-
-        if product_resp.status_code != 200:
-            return
-
-        product = product_resp.json()
-
-        updated_payload = {
-            "name": product["name"],
-            "description": product["description"],
-            "price": product["price"],
-            "stock": product["stock"] + quantity,
-            "category": product.get("category"),
-            "tags": product.get("tags"),
-        }
-
-        httpx.put(
-            f"{PRODUCT_SERVICE_URL}/products/{product_id}",
-            json=updated_payload,
-            timeout=10,
-        )
-
-    except Exception as exc:
-        print(f"Error restoring stock: {exc}")
+        except OperationalError:
+            if attempt == 29:
+                raise
+            sleep(2)
 
 
-# -------------------------
-# MAIN PAYMENT ENDPOINT
-# -------------------------
-@app.post("/payments/process")
-def process_payment_request(data: PaymentRequest):
-    payment_result = process_payment(data.order_id, data.amount)
-
-    status = "paid" if payment_result["success"] else "payment_failed"
-
-    update_order_status(
-        data.order_id,
-        status,
-        payment_result["transaction_id"]
-    )
-
-    if status == "payment_failed":
-        restore_stock_for_order(data.order_id)
-
-    return {
-        **payment_result,
-        "order_status": status
-    }
-
-
-# -------------------------
-# HEALTH CHECK
-# -------------------------
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "payment-service"}
+    return {"status": "ok", "service": "user-service"}
+
+
+@app.post("/register")
+def register(data: RegisterRequest):
+    db = SessionLocal()
+    try:
+        hashed = hash_password(data.password)
+        user = User(name=data.name, email=data.email, password_hash=hashed, role=data.role.lower())
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return {"id": user.id, "name": user.name, "email": user.email, "role": user.role}
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Email already exists") from exc
+    finally:
+        db.close()
+
+
+@app.post("/login")
+def login(data: LoginRequest):
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == data.email).first()
+        if not user or not verify_password(data.password, user.password_hash):
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        token = create_access_token(user)
+        return {"access_token": token, "token_type": "bearer"}
+    finally:
+        db.close()
+
+
+@app.get("/me")
+def me(authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing token")
+    token = authorization.split(" ", 1)[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user_id = payload.get("user_id")
+    except JWTError as exc:
+        raise HTTPException(status_code=401, detail="Invalid token") from exc
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        return {
+            "user_id": user.id,
+            "email": user.email,
+            "role": user.role,
+            "name": user.name,
+        }
+    finally:
+        db.close()
+
+
+@app.get("/users")
+def list_users():
+    db = SessionLocal()
+    try:
+        users = db.query(User).all()
+        return [
+            {
+                "id": user.id,
+                "name": user.name,
+                "email": user.email,
+                "role": user.role,
+            }
+            for user in users
+        ]
+    finally:
+        db.close()
