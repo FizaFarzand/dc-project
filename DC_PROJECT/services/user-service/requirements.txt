@@ -5,3 +5,5 @@ pymysql
 cryptography
 python-jose
 email-validator
+pymongo
+mysql-connector-python

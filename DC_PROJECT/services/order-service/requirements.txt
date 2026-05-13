@@ -5,3 +5,5 @@ pymysql
 cryptography
 httpx
 pika
+pymongo
+mysql-connector-python

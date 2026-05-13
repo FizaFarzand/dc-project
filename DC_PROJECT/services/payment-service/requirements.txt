@@ -3,4 +3,5 @@ uvicorn
 redis
 pika
 httpx
-
+pymongo
+mysql-connector-python
