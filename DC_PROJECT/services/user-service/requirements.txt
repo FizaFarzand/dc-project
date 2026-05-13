@@ -10,6 +10,6 @@ mysql-connector-python
 passlib[bcrypt]
 bcrypt
 pydantic
-python-doten
+python-dotenv
 
 
