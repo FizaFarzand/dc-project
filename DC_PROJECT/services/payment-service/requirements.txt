@@ -5,3 +5,5 @@ pika
 httpx
 pymongo
 mysql-connector-python
+pydantic
+python-dotenv

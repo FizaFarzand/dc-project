@@ -7,3 +7,7 @@ python-jose
 email-validator
 pymongo
 mysql-connector-python
+passlib[bcrypt]
+bcrypt
+pydantic
+python-dotenv

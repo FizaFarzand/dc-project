@@ -1,4 +1,5 @@
 fastapi
 uvicorn
 pymongo
-mysql-connector-python
+dnspython
+python-dotenv
