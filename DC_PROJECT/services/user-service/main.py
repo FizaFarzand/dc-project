@@ -23,12 +23,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DB_HOST = os.getenv("USER_DB_HOST", "localhost")
-DB_PORT = os.getenv("USER_DB_PORT", "3306")
-DB_NAME = os.getenv("USER_DB_NAME", "user_db")
-DB_USER = os.getenv("USER_DB_USER", "root")
-DB_PASSWORD = os.getenv("USER_DB_PASSWORD", "root")
-
+DB_HOST = os.getenv("MYSQLHOST")
+DB_PORT = os.getenv("MYSQLPORT")
+DB_NAME = os.getenv("MYSQLDATABASE")
+DB_USER = os.getenv("MYSQLUSER")
+DB_PASSWORD = os.getenv("MYSQLPASSWORD")
 JWT_SECRET = os.getenv("JWT_SECRET", "supersecretkey")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 
