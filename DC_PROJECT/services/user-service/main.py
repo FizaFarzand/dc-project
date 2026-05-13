@@ -24,15 +24,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------------- ENV ----------------
-DATABASE_URL = os.getenv("MYSQL_URL")
+# ---------------- ENV (FIXED) ----------------
+DATABASE_URL = os.getenv("MYSQL_PUBLIC_URL")  # ✅ FIXED HERE
 
 JWT_SECRET = os.getenv("JWT_SECRET", "supersecretkey")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 
-# IMPORTANT: fail fast if DB not configured
+# FAIL FAST if missing DB
 if not DATABASE_URL:
-    raise Exception("MYSQL_URL is missing in environment variables")
+    raise Exception("MYSQL_PUBLIC_URL is missing in environment variables")
 
 # ---------------- DB ----------------
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
@@ -96,7 +96,6 @@ def create_token(user):
 # ---------------- STARTUP ----------------
 @app.on_event("startup")
 def startup():
-    # retry DB connection (Railway sometimes slow start)
     for _ in range(30):
         try:
             Base.metadata.create_all(bind=engine)
