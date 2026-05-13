@@ -38,24 +38,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       return;
     }
-    const { data } = await api.get<UserMe>("/users/me");
+    const { data } = await api.get<UserMe>("/me");
     setUser(data);
   }, []);
 
   const doLogin = useCallback(async (email: string, password: string) => {
-    const { data } = await api.post<{ access_token: string }>("/users/login", {
+    const { data } = await api.post<{ access_token: string }>("/login", {
       email,
       password,
     });
     localStorage.setItem("access_token", data.access_token);
     setToken(data.access_token);
-    const { data: me } = await api.get<UserMe>("/users/me");
+    const { data: me } = await api.get<UserMe>("/me");
     setUser(me);
   }, []);
 
   const doRegister = useCallback(
     async (name: string, email: string, password: string) => {
-      await api.post("/users/register", {
+      await api.post("/register", {
         name,
         email,
         password,
@@ -75,7 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       try {
-        const { data } = await api.get<UserMe>("/users/me");
+        const { data } = await api.get<UserMe>("/me");
         if (!cancelled) setUser(data);
       } catch {
         if (!cancelled) {
