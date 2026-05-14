@@ -24,15 +24,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------------- ENV (FIXED) ----------------
-DATABASE_URL = os.getenv("MYSQL_PUBLIC_URL")  # ✅ FIXED HERE
+# ---------------- ENV (RAILWAY FIXED) ----------------
+DB_HOST = os.getenv("MYSQLHOST")
+DB_PORT = os.getenv("MYSQLPORT", "3306")
+DB_NAME = os.getenv("MYSQLDATABASE")
+DB_USER = os.getenv("MYSQLUSER")
+DB_PASSWORD = os.getenv("MYSQLPASSWORD")
 
 JWT_SECRET = os.getenv("JWT_SECRET", "supersecretkey")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 
-# FAIL FAST if missing DB
-if not DATABASE_URL:
-    raise Exception("MYSQL_PUBLIC_URL is missing in environment variables")
+# ---------------- FAIL FAST CHECK ----------------
+if not all([DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD]):
+    raise Exception("Missing MySQL environment variables")
+
+# ---------------- DB URL ----------------
+DATABASE_URL = (
+    f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+)
 
 # ---------------- DB ----------------
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
