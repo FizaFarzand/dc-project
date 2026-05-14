@@ -4,16 +4,16 @@ import { api, getErrorMessage } from "../services/api";
 import type { PaginatedProducts, Product } from "../types";
 import { debounce } from "../utils/debounce";
 import { LoadingSpinner } from "../components/Loading_Spinner";
+
 const PAGE_SIZE = 12;
 
-const productImages = [
-  "/images/laptop.jpg",
-  "/images/headphone.jpg",
-  "/images/watch.jpg",
-  "/images/keyboard.jpg",
-  "/images/phone.jpg",
-  "/images/camera.jpg",
-];
+const productImages: Record<string, string> = {
+  camera: "/images/camera.jpg",
+  keyboard: "/images/keyboard.jpg",
+  watch: "/images/watch.jpg",
+  phone: "/images/phone.jpg",
+  headphones: "/images/headphone.jpg",
+};
 
 export function Products() {
   const [browse, setBrowse] = useState<PaginatedProducts | null>(null);
@@ -196,47 +196,53 @@ export function Products() {
           </p>
 
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
-            {items.map((p, index) => (
-              <article
-                key={p.id}
-                className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg transition hover:-translate-y-2 hover:shadow-2xl dark:border-slate-800 dark:bg-slate-900"
-              >
-                <img
-                  src={productImages[index % productImages.length]}
-                  alt={p.name}
-                  className="h-64 w-full object-cover"
-                />
+            {items.map((p) => {
+              const image =
+                productImages[p.name.toLowerCase()] ||
+                "/images/phone.jpg";
 
-                <div className="flex flex-1 flex-col p-6">
-                  <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-                    {p.name}
-                  </h2>
+              return (
+                <article
+                  key={p.id}
+                  className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg transition hover:-translate-y-2 hover:shadow-2xl dark:border-slate-800 dark:bg-slate-900"
+                >
+                  <img
+                    src={image}
+                    alt={p.name}
+                    className="h-64 w-full object-cover"
+                  />
 
-                  <p className="mt-2 line-clamp-2 text-sm text-slate-600 dark:text-slate-400">
-                    {p.description}
-                  </p>
+                  <div className="flex flex-1 flex-col p-6">
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+                      {p.name}
+                    </h2>
 
-                  <div className="mt-5 flex items-end justify-between">
-                    <div>
-                      <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
-                        ${p.price.toFixed(2)}
-                      </p>
+                    <p className="mt-2 line-clamp-2 text-sm text-slate-600 dark:text-slate-400">
+                      {p.description}
+                    </p>
 
-                      <p className="mt-1 text-xs text-slate-500">
-                        {p.stock} items available
-                      </p>
+                    <div className="mt-5 flex items-end justify-between">
+                      <div>
+                        <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
+                          ${p.price.toFixed(2)}
+                        </p>
+
+                        <p className="mt-1 text-xs text-slate-500">
+                          {p.stock} items available
+                        </p>
+                      </div>
+
+                      <Link
+                        to={`/products/${p.id}`}
+                        className="rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700"
+                      >
+                        View Details
+                      </Link>
                     </div>
-
-                    <Link
-                      to={`/products/${p.id}`}
-                      className="rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700"
-                    >
-                      View Details
-                    </Link>
                   </div>
-                </div>
-              </article>
-            ))}
+                </article>
+              );
+            })}
           </div>
 
           {!searchMode && browse && totalPages > 1 && (

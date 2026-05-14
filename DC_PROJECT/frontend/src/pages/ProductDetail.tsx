@@ -72,17 +72,17 @@ export function ProductDetail() {
   }
 
   if (!product) return null;
-  const productImages: Record<string, string> = {
-  laptop: "/images/laptop.jpg",
-  iphone: "/images/phone.jpg",
-  headphones: "/images/headphone.jpg",
-  watch: "/images/watch.jpg",
-  keyboard: "/images/keyboard.jpg",
+const productImages: Record<string, string> = {
   camera: "/images/camera.jpg",
+  keyboard: "/images/keyboard.jpg",
+  watch: "/images/watch.jpg",
+  phone: "/images/phone.jpg",
+  headphones: "/images/headphone.jpg",
 };
 
 const productImage =
-  productImages[product.name.toLowerCase()] || "/images/laptop.jpg";
+  productImages[product.name.toLowerCase()] ||
+  "/images/phone.jpg";
 
 
   const maxQty = Math.max(1, product.stock);
