@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+
 import { api, getErrorMessage } from "../services/api";
 import type { UserMe } from "../types";
 
@@ -16,7 +17,11 @@ type AuthContextValue = {
   loading: boolean;
   error: string | null;
   login: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, password: string) => Promise<void>;
+  register: (
+    name: string,
+    email: string,
+    password: string
+  ) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
   clearError: () => void;
@@ -24,44 +29,78 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({
+  children,
+}: {
+  children: ReactNode;
+}) {
   const [token, setToken] = useState<string | null>(() =>
-    localStorage.getItem("access_token"),
+    localStorage.getItem("access_token")
   );
+
   const [user, setUser] = useState<UserMe | null>(null);
+
   const [loading, setLoading] = useState(true);
+
   const [error, setError] = useState<string | null>(null);
 
-  // ---------------- GET CURRENT USER ----------------
+  // =========================
+  // GET CURRENT USER
+  // =========================
+
   const refreshUser = useCallback(async () => {
     const token = localStorage.getItem("access_token");
+
     if (!token) {
       setUser(null);
       return;
     }
 
-    const { data } = await api.get<UserMe>("/me");
+    const { data } = await api.get<UserMe>("/users/me");
+
     setUser(data);
   }, []);
 
-  // ---------------- LOGIN ----------------
-  const doLogin = useCallback(async (email: string, password: string) => {
-    const { data } = await api.post<{ access_token: string }>("/login", {
-      email,
-      password,
-    });
+  // =========================
+  // LOGIN
+  // =========================
 
-    localStorage.setItem("access_token", data.access_token);
-    setToken(data.access_token);
+  const doLogin = useCallback(
+    async (email: string, password: string) => {
+      const { data } = await api.post<{
+        access_token: string;
+      }>("/users/login", {
+        email,
+        password,
+      });
 
-    const { data: me } = await api.get<UserMe>("/me");
-    setUser(me);
-  }, []);
+      localStorage.setItem(
+        "access_token",
+        data.access_token
+      );
 
-  // ---------------- REGISTER ----------------
+      setToken(data.access_token);
+
+      const { data: me } = await api.get<UserMe>(
+        "/users/me"
+      );
+
+      setUser(me);
+    },
+    []
+  );
+
+  // =========================
+  // REGISTER
+  // =========================
+
   const doRegister = useCallback(
-    async (name: string, email: string, password: string) => {
-      await api.post("/register", {
+    async (
+      name: string,
+      email: string,
+      password: string
+    ) => {
+      await api.post("/users/register", {
         name,
         email,
         password,
@@ -70,10 +109,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       await doLogin(email, password);
     },
-    [doLogin],
+    [doLogin]
   );
 
-  // ---------------- AUTO LOAD USER ----------------
+  // =========================
+  // AUTO LOAD USER
+  // =========================
+
   useEffect(() => {
     let cancelled = false;
 
@@ -87,16 +129,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const { data } = await api.get<UserMe>("/me");
-        if (!cancelled) setUser(data);
+        const { data } = await api.get<UserMe>(
+          "/users/me"
+        );
+
+        if (!cancelled) {
+          setUser(data);
+        }
       } catch {
         if (!cancelled) {
           setUser(null);
+
           localStorage.removeItem("access_token");
+
           setToken(null);
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     })();
 
@@ -105,40 +156,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // ---------------- WRAPPERS ----------------
+  // =========================
+  // WRAPPERS
+  // =========================
+
   const login = useCallback(
     async (email: string, password: string) => {
       try {
         setError(null);
+
         await doLogin(email, password);
       } catch (e) {
         setError(getErrorMessage(e));
         throw e;
       }
     },
-    [doLogin],
+    [doLogin]
   );
 
   const register = useCallback(
-    async (name: string, email: string, password: string) => {
+    async (
+      name: string,
+      email: string,
+      password: string
+    ) => {
       try {
         setError(null);
+
         await doRegister(name, email, password);
       } catch (e) {
         setError(getErrorMessage(e));
         throw e;
       }
     },
-    [doRegister],
+    [doRegister]
   );
 
   const logout = useCallback(() => {
     localStorage.removeItem("access_token");
+
     setToken(null);
+
     setUser(null);
   }, []);
 
-  const clearError = useCallback(() => setError(null), []);
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
 
   const refreshUserWrapped = useCallback(async () => {
     try {
@@ -170,16 +234,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logout,
       refreshUserWrapped,
       clearError,
-    ],
+    ]
   );
 
   return (
-    <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
   );
 }
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
+
+  if (!ctx) {
+    throw new Error(
+      "useAuth must be used within AuthProvider"
+    );
+  }
+
   return ctx;
 }
