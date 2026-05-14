@@ -35,11 +35,6 @@ DATABASE_URL = os.getenv("MYSQL_PUBLIC_URL")
 if not DATABASE_URL:
     raise Exception("MYSQL_PUBLIC_URL is missing")
 
-DATABASE_URL = DATABASE_URL.replace(
-    "mysql://",
-    "mysql+pymysql://"
-)
-
 JWT_SECRET = os.getenv("JWT_SECRET", "supersecretkey")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 
