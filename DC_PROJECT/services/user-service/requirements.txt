@@ -1,8 +1,8 @@
-pymysql
-sqlalchemy
 fastapi
 uvicorn
-python-jose
-pydantic
-email-validator
+sqlalchemy
+pymysql
 cryptography
+python-jose
+email-validator
+pydantic

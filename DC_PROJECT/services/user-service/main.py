@@ -3,7 +3,6 @@ import hashlib
 import hmac
 import secrets
 from datetime import datetime, timedelta
-from time import sleep
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,11 +10,16 @@ from jose import JWTError, jwt
 from pydantic import BaseModel, EmailStr
 
 from sqlalchemy import Column, Integer, String, create_engine
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 # ---------------- APP ----------------
-app = FastAPI(title="User Service")
+app = FastAPI(
+    title="User Service",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,14 +29,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------------- ENV (IMPORTANT FIX) ----------------
-DATABASE_URL = os.getenv("MYSQL_PUBLIC_URL")  # ✅ ONLY THIS
+# ---------------- ENV ----------------
+DATABASE_URL = os.getenv("MYSQL_PUBLIC_URL")
 
 JWT_SECRET = os.getenv("JWT_SECRET", "supersecretkey")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 
 if not DATABASE_URL:
-    raise Exception("MYSQL_PUBLIC_URL is missing in Railway variables")
+    raise Exception("MYSQL_PUBLIC_URL is missing")
+
+# IMPORTANT:
+# Railway public URL must use:
+# mysql+pymysql://
 
 # ---------------- DB ----------------
 engine = create_engine(
@@ -41,7 +49,12 @@ engine = create_engine(
     pool_recycle=300,
 )
 
-SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine
+)
+
 Base = declarative_base()
 
 # ---------------- MODEL ----------------
@@ -61,6 +74,7 @@ class RegisterRequest(BaseModel):
     password: str
     role: str = "customer"
 
+
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
@@ -68,26 +82,31 @@ class LoginRequest(BaseModel):
 # ---------------- SECURITY ----------------
 def hash_password(password: str) -> str:
     salt = secrets.token_hex(16)
+
     digest = hashlib.pbkdf2_hmac(
         "sha256",
         password.encode(),
         salt.encode(),
         100000
     ).hex()
+
     return f"{salt}${digest}"
 
 
 def verify_password(password: str, stored: str) -> bool:
     try:
         salt, expected = stored.split("$", 1)
+
         digest = hashlib.pbkdf2_hmac(
             "sha256",
             password.encode(),
             salt.encode(),
             100000
         ).hex()
+
         return hmac.compare_digest(digest, expected)
-    except:
+
+    except Exception:
         return False
 
 
@@ -98,84 +117,162 @@ def create_token(user):
         "role": user.role,
         "exp": datetime.utcnow() + timedelta(hours=24),
     }
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+    return jwt.encode(
+        payload,
+        JWT_SECRET,
+        algorithm=JWT_ALGORITHM
+    )
 
 # ---------------- STARTUP ----------------
 @app.on_event("startup")
 def startup():
-    for i in range(30):
-        try:
-            Base.metadata.create_all(bind=engine)
-            print("Database connected successfully")
-            return
-        except OperationalError as e:
-            print(f"DB retry {i+1}/30:", e)
-            sleep(2)
+    try:
+        Base.metadata.create_all(bind=engine)
+        print("Database connected successfully")
 
-    raise Exception("Database connection failed")
+    except Exception as e:
+        print("Database startup error:", e)
 
 # ---------------- ROUTES ----------------
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "user-service"}
+    return {
+        "status": "ok",
+        "service": "user-service"
+    }
 
+# ---------------- REGISTER ----------------
 @app.post("/register")
 def register(data: RegisterRequest):
     db = SessionLocal()
+
     try:
+        existing_user = db.query(User).filter(
+            User.email == data.email
+        ).first()
+
+        if existing_user:
+            raise HTTPException(
+                status_code=400,
+                detail="Email already exists"
+            )
+
         user = User(
             name=data.name,
             email=data.email,
             password_hash=hash_password(data.password),
             role=data.role,
         )
+
         db.add(user)
         db.commit()
         db.refresh(user)
 
-        return {"id": user.id, "name": user.name, "email": user.email}
+        return {
+            "id": user.id,
+            "name": user.name,
+            "email": user.email,
+            "role": user.role
+        }
 
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=400, detail="Email already exists")
+
+        raise HTTPException(
+            status_code=400,
+            detail="Email already exists"
+        )
+
+    except Exception as e:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
     finally:
         db.close()
 
+# ---------------- LOGIN ----------------
 @app.post("/login")
 def login(data: LoginRequest):
     db = SessionLocal()
+
     try:
-        user = db.query(User).filter(User.email == data.email).first()
+        user = db.query(User).filter(
+            User.email == data.email
+        ).first()
 
-        if not user or not verify_password(data.password, user.password_hash):
-            raise HTTPException(status_code=401, detail="Invalid credentials")
+        if not user:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid credentials"
+            )
 
-        return {"access_token": create_token(user)}
+        if not verify_password(
+            data.password,
+            user.password_hash
+        ):
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid credentials"
+            )
+
+        token = create_token(user)
+
+        return {
+            "access_token": token,
+            "token_type": "bearer"
+        }
 
     finally:
         db.close()
 
+# ---------------- ME ----------------
 @app.get("/me")
 def me(authorization: str = Header(None)):
     if not authorization:
-        raise HTTPException(status_code=401)
+        raise HTTPException(
+            status_code=401,
+            detail="Missing token"
+        )
 
     token = authorization.replace("Bearer ", "")
 
     try:
-        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-    except JWTError:
-        raise HTTPException(status_code=401)
+        decoded = jwt.decode(
+            token,
+            JWT_SECRET,
+            algorithms=[JWT_ALGORITHM]
+        )
 
+        return decoded
+
+    except JWTError:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid token"
+        )
+
+# ---------------- USERS ----------------
 @app.get("/users")
 def list_users():
     db = SessionLocal()
+
     try:
         users = db.query(User).all()
+
         return [
-            {"id": u.id, "name": u.name, "email": u.email, "role": u.role}
+            {
+                "id": u.id,
+                "name": u.name,
+                "email": u.email,
+                "role": u.role
+            }
             for u in users
         ]
+
     finally:
         db.close()
