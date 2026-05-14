@@ -1,16 +1,14 @@
 import axios, { AxiosError } from "axios";
 
-// 🚨 IMPORTANT: NO /api HERE
 const baseURL =
   import.meta.env.VITE_API_URL?.replace(/\/$/, "") ||
-  "https://dc-project-production-dc01.up.railway.app";
+  "https://dc-project-production-dc01.up.railway.app/api";
 
 export const api = axios.create({
   baseURL,
   headers: { "Content-Type": "application/json" },
 });
 
-// ---------------- TOKEN ATTACH ----------------
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("access_token");
 
@@ -21,7 +19,6 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// ---------------- ERROR HANDLING ----------------
 api.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
@@ -39,7 +36,6 @@ api.interceptors.response.use(
   }
 );
 
-// ---------------- ERROR HELPER ----------------
 export function getErrorMessage(err: unknown): string {
   if (axios.isAxiosError(err)) {
     const status = err.response?.status;

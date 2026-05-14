@@ -248,7 +248,24 @@ def me(authorization: str = Header(None)):
             algorithms=[JWT_ALGORITHM]
         )
 
-        return decoded
+        user_id = decoded.get("user_id")
+
+        db = SessionLocal()
+
+        user = db.query(User).filter(User.id == user_id).first()
+
+        if not user:
+            raise HTTPException(
+                status_code=404,
+                detail="User not found"
+            )
+
+        return {
+            "user_id": user.id,
+            "name": user.name,
+            "email": user.email,
+            "role": user.role,
+        }
 
     except JWTError:
         raise HTTPException(
