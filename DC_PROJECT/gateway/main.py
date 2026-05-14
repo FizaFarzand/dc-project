@@ -35,6 +35,11 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+
+        "https://dc-project-gamma.vercel.app",
+
+        "https://dc-project-fizafarzands-projects.vercel.app",
+
         FRONTEND_URL,
     ],
     allow_credentials=True,
