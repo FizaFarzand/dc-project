@@ -18,7 +18,7 @@ app.add_middleware(
 )
 
 MONGO_URI = os.getenv("MONGO_URI")
-DB_NAME = os.getenv("MONGO_DB_NAME", "product_db")
+DB_NAME = os.getenv("MONGO_DB_NAME", "dc_db")
 
 client = MongoClient(MONGO_URI)
 db = client[DB_NAME]
