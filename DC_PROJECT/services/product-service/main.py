@@ -20,9 +20,16 @@ app.add_middleware(
 MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = os.getenv("MONGO_DB_NAME", "dc_db")
 
-client = MongoClient(MONGO_URI)
-db = client[DB_NAME]
-collection = db["products"]
+try:
+    client = MongoClient(MONGO_URI)
+    client.admin.command("ping")
+    print("MongoDB connected successfully")
+
+    db = client[DB_NAME]
+    collection = db["products"]
+
+except Exception as e:
+    print("MongoDB connection failed:", e)
 
 
 class Product(BaseModel):
