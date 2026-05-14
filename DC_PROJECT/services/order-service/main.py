@@ -4,7 +4,7 @@ from time import sleep
 from typing import Optional
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import Column, DateTime, Float, Integer, String, create_engine
@@ -13,7 +13,6 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 app = FastAPI(title="Order Service")
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,7 +21,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------------- ENV ----------------
 DB_HOST = os.getenv("ORDER_DB_HOST")
 DB_PORT = os.getenv("ORDER_DB_PORT", "3306")
 DB_NAME = os.getenv("ORDER_DB_NAME")
@@ -32,14 +30,13 @@ DB_PASSWORD = os.getenv("ORDER_DB_PASSWORD")
 PRODUCT_SERVICE_URL = os.getenv("PRODUCT_SERVICE_URL")
 PAYMENT_SERVICE_URL = os.getenv("PAYMENT_SERVICE_URL")
 
-# ---------------- DB ----------------
 DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 Base = declarative_base()
 
-# ---------------- MODEL ----------------
+
 class Order(Base):
     __tablename__ = "orders"
 
@@ -52,12 +49,13 @@ class Order(Base):
     transaction_id = Column(String(100))
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
 class OrderCreate(BaseModel):
     user_id: int
     product_id: str
     quantity: int
 
-# ---------------- STARTUP ----------------
+
 @app.on_event("startup")
 def startup():
     for _ in range(30):
@@ -67,18 +65,17 @@ def startup():
         except OperationalError:
             sleep(2)
 
-# ---------------- HEALTH ----------------
+
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "order-service"}
 
-# ---------------- CREATE ORDER ----------------
+
 @app.post("/orders")
 async def create_order(data: OrderCreate):
 
     async with httpx.AsyncClient(timeout=20) as client:
 
-        # GET PRODUCT
         product_res = await client.get(
             f"{PRODUCT_SERVICE_URL}/products/{data.product_id}"
         )
@@ -91,7 +88,6 @@ async def create_order(data: OrderCreate):
     if product["stock"] < data.quantity:
         raise HTTPException(status_code=400, detail="Not enough stock")
 
-    # UPDATE STOCK
     updated_product = product.copy()
     updated_product["stock"] -= data.quantity
 
@@ -103,8 +99,8 @@ async def create_order(data: OrderCreate):
 
     total = product["price"] * data.quantity
 
-    # SAVE ORDER
     db = SessionLocal()
+
     order = Order(
         user_id=data.user_id,
         product_id=data.product_id,
@@ -112,20 +108,70 @@ async def create_order(data: OrderCreate):
         total_price=total,
         status="pending_payment"
     )
+
     db.add(order)
     db.commit()
     db.refresh(order)
-    db.close()
 
-    # CALL PAYMENT
     async with httpx.AsyncClient() as client:
         await client.post(
             f"{PAYMENT_SERVICE_URL}/payments/process",
-            json={"order_id": order.id, "amount": total}
+            json={
+                "order_id": order.id,
+                "amount": total
+            }
         )
 
     return {
         "id": order.id,
+        "user_id": order.user_id,
+        "product_id": order.product_id,
+        "quantity": order.quantity,
+        "total_price": order.total_price,
         "status": order.status,
-        "total_price": order.total_price
+    }
+
+
+@app.get("/orders")
+def get_orders(user_id: Optional[int] = Query(None)):
+
+    db = SessionLocal()
+
+    query = db.query(Order)
+
+    if user_id:
+        query = query.filter(Order.user_id == user_id)
+
+    orders = query.order_by(Order.created_at.desc()).all()
+
+    return [
+        {
+            "id": o.id,
+            "user_id": o.user_id,
+            "product_id": o.product_id,
+            "quantity": o.quantity,
+            "total_price": o.total_price,
+            "status": o.status,
+        }
+        for o in orders
+    ]
+
+
+@app.get("/orders/{order_id}")
+def get_order(order_id: int):
+
+    db = SessionLocal()
+
+    order = db.query(Order).filter(Order.id == order_id).first()
+
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    return {
+        "id": order.id,
+        "user_id": order.user_id,
+        "product_id": order.product_id,
+        "quantity": order.quantity,
+        "total_price": order.total_price,
+        "status": order.status,
     }
