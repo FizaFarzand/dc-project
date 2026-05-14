@@ -25,28 +25,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------------- ENV ----------------
-DB_HOST = os.getenv("MYSQLHOST")
-DB_PORT = os.getenv("MYSQLPORT", "3306")
-DB_NAME = os.getenv("MYSQLDATABASE")
-DB_USER = os.getenv("MYSQLUSER")
-DB_PASSWORD = os.getenv("MYSQLPASSWORD")
+# ---------------- ENV (IMPORTANT FIX) ----------------
+DATABASE_URL = os.getenv("MYSQL_PUBLIC_URL")  # ✅ ONLY THIS
 
 JWT_SECRET = os.getenv("JWT_SECRET", "supersecretkey")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 
-# ---------------- FAIL FAST ----------------
-if not all([DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD]):
-    raise Exception(
-        f"Missing MySQL env vars: "
-        f"HOST={DB_HOST}, PORT={DB_PORT}, DB={DB_NAME}, USER={DB_USER}"
-    )
-
-# ---------------- FIX: FORCE PYMYSQL DRIVER ----------------
-DATABASE_URL = (
-    f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}"
-    f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-)
+if not DATABASE_URL:
+    raise Exception("MYSQL_PUBLIC_URL is missing in Railway variables")
 
 # ---------------- DB ----------------
 engine = create_engine(
@@ -75,7 +61,6 @@ class RegisterRequest(BaseModel):
     password: str
     role: str = "customer"
 
-
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
@@ -102,7 +87,7 @@ def verify_password(password: str, stored: str) -> bool:
             100000
         ).hex()
         return hmac.compare_digest(digest, expected)
-    except Exception:
+    except:
         return False
 
 
@@ -121,19 +106,19 @@ def startup():
     for i in range(30):
         try:
             Base.metadata.create_all(bind=engine)
-            print("✅ Database connected successfully")
+            print("Database connected successfully")
             return
         except OperationalError as e:
-            print(f"DB not ready, retry {i+1}/30:", e)
+            print(f"DB retry {i+1}/30:", e)
             sleep(2)
-    raise Exception("❌ Database connection failed after retries")
+
+    raise Exception("Database connection failed")
 
 # ---------------- ROUTES ----------------
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "user-service"}
 
-# ---------------- REGISTER ----------------
 @app.post("/register")
 def register(data: RegisterRequest):
     db = SessionLocal()
@@ -148,24 +133,15 @@ def register(data: RegisterRequest):
         db.commit()
         db.refresh(user)
 
-        return {
-            "id": user.id,
-            "name": user.name,
-            "email": user.email
-        }
+        return {"id": user.id, "name": user.name, "email": user.email}
 
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=400, detail="Email already exists")
 
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
     finally:
         db.close()
 
-# ---------------- LOGIN ----------------
 @app.post("/login")
 def login(data: LoginRequest):
     db = SessionLocal()
@@ -180,32 +156,25 @@ def login(data: LoginRequest):
     finally:
         db.close()
 
-# ---------------- ME ----------------
 @app.get("/me")
 def me(authorization: str = Header(None)):
     if not authorization:
-        raise HTTPException(status_code=401, detail="Missing token")
+        raise HTTPException(status_code=401)
 
     token = authorization.replace("Bearer ", "")
 
     try:
         return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
     except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise HTTPException(status_code=401)
 
-# ---------------- USERS ----------------
 @app.get("/users")
 def list_users():
     db = SessionLocal()
     try:
         users = db.query(User).all()
         return [
-            {
-                "id": u.id,
-                "name": u.name,
-                "email": u.email,
-                "role": u.role
-            }
+            {"id": u.id, "name": u.name, "email": u.email, "role": u.role}
             for u in users
         ]
     finally:
