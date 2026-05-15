@@ -1,5 +1,6 @@
 import os
 import uuid
+import random
 from datetime import datetime
 
 import httpx
@@ -39,7 +40,7 @@ PRODUCT_SERVICE_URL = os.getenv(
 PAYMENT_FAIL_RATE = float(
     os.getenv(
         "PAYMENT_FAIL_RATE",
-        "0"
+        "0.2"
     )
 )
 
@@ -82,19 +83,22 @@ def process_payment(
     amount
 ):
 
-    success=True
+    # ---------------- REAL SIMULATION LOGIC ----------------
+    rand_value = random.random()
 
-    txn=(
+    success = rand_value > PAYMENT_FAIL_RATE
+
+    txn = (
         f"txn_{uuid.uuid4().hex[:10]}"
     )
 
-    data={
+    data = {
 
-        "order_id":order_id,
-        "amount":amount,
-        "success":success,
+        "order_id": order_id,
+        "amount": amount,
+        "success": success,
 
-        "transaction_id":txn,
+        "transaction_id": txn,
 
         "timestamp":
         datetime.utcnow().isoformat()
@@ -106,8 +110,8 @@ def process_payment(
         r.hset(
             f"payment:{order_id}",
             mapping={
-                k:str(v)
-                for k,v in data.items()
+                k: str(v)
+                for k, v in data.items()
             }
         )
 
@@ -135,15 +139,15 @@ def update_order(
 
     try:
 
-        response=httpx.patch(
+        response = httpx.patch(
 
             f"{ORDER_SERVICE_URL}/orders/{order_id}/status",
 
             json={
 
-                "status":status,
+                "status": status,
 
-                "transaction_id":txn
+                "transaction_id": txn
             },
 
             timeout=20
@@ -172,7 +176,7 @@ def update_order(
     "/payments/process"
 )
 def pay(
-    data:Payment
+    data: Payment
 ):
 
     print(
@@ -180,29 +184,24 @@ def pay(
         data.order_id
     )
 
-    result=process_payment(
+    result = process_payment(
         data.order_id,
         data.amount
     )
 
-    status="paid"
+    # use real simulation result
+    status = "paid" if result["success"] else "payment_failed"
 
     update_order(
-
         data.order_id,
-
         status,
-
-        result[
-            "transaction_id"
-        ]
+        result["transaction_id"]
     )
 
-    return{
+    return {
 
         **result,
-
-        "status":status
+        "status": status
     }
 
 
@@ -215,7 +214,7 @@ def health():
 
     return {
 
-        "status":"ok",
+        "status": "ok",
 
         "service":
         "payment-service"
