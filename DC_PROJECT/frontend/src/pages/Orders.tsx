@@ -94,10 +94,6 @@ export function Orders() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Orders</h1>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-            Polls every {POLL_MS / 1000}s while any order is{" "}
-            <code className="rounded bg-slate-200 px-1 dark:bg-slate-800">pending_payment</code>.
-          </p>
         </div>
         <button
           type="button"
