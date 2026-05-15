@@ -11,7 +11,7 @@ from fastapi import (
     Header
 )
 from fastapi.middleware.cors import CORSMiddleware
-from jose import jwt, JWTError
+from jose import jwt
 from pydantic import BaseModel
 from sqlalchemy import (
     Column,
@@ -128,7 +128,6 @@ class Order(Base):
         default=datetime.utcnow
     )
 
-
 # =========================
 # SCHEMAS
 # =========================
@@ -145,28 +144,23 @@ class OrderUpdate(BaseModel):
     status: str
     transaction_id: Optional[str] = None
 
-
 # =========================
 # AUTH
 # =========================
 
 def get_current_user(
-    authorization: str = Header(None)
+    authorization: Optional[str]
 ):
 
-    if not authorization:
-
-        raise HTTPException(
-            status_code=401,
-            detail="Missing token"
-        )
-
-    token = authorization.replace(
-        "Bearer ",
-        ""
-    )
-
     try:
+
+        if not authorization:
+            return None
+
+        token = authorization.replace(
+            "Bearer ",
+            ""
+        )
 
         decoded = jwt.decode(
             token,
@@ -174,21 +168,22 @@ def get_current_user(
             algorithms=[JWT_ALGORITHM]
         )
 
-        return {
-            "user_id": decoded.get(
-                "user_id"
-            ),
-            "role": decoded.get(
-                "role"
-            )
-        }
-
-    except JWTError:
-
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid token"
+        user_id = (
+            decoded.get("user_id")
+            or decoded.get("id")
+            or decoded.get("sub")
         )
+
+        return user_id
+
+    except Exception as e:
+
+        print(
+            "JWT ERROR:",
+            e
+        )
+
+        return None
 
 
 # =========================
@@ -230,7 +225,6 @@ def health():
         "status": "ok",
         "service": "order-service"
     }
-
 
 # =========================
 # CREATE ORDER
@@ -348,38 +342,37 @@ async def create_order(
 
         db.close()
 
-
 # =========================
 # GET ALL ORDERS
 # =========================
 
 @app.get("/orders")
 def get_orders(
-    authorization: str = Header(None)
+    authorization: Optional[str] = Header(None)
 ):
 
     db = SessionLocal()
 
     try:
 
-        current_user = get_current_user(
+        user_id = get_current_user(
             authorization
         )
 
         query = db.query(Order)
 
-        if current_user["role"] != "admin":
+        if user_id:
 
             query = query.filter(
                 Order.user_id ==
-                current_user["user_id"]
+                int(user_id)
             )
 
         orders = query.order_by(
             Order.created_at.desc()
         ).all()
 
-        result = [
+        return [
 
             {
                 "id": o.id,
@@ -393,15 +386,11 @@ def get_orders(
             }
 
             for o in orders
-
         ]
-
-        return result
 
     finally:
 
         db.close()
-
 
 # =========================
 # GET SINGLE ORDER
@@ -410,14 +399,14 @@ def get_orders(
 @app.get("/orders/{order_id}")
 def get_order(
     order_id: int,
-    authorization: str = Header(None)
+    authorization: Optional[str] = Header(None)
 ):
 
     db = SessionLocal()
 
     try:
 
-        current_user = get_current_user(
+        user_id = get_current_user(
             authorization
         )
 
@@ -434,17 +423,14 @@ def get_order(
                 detail="Order not found"
             )
 
-        if (
-            current_user["role"] != "admin"
-            and
-            order.user_id !=
-            current_user["user_id"]
-        ):
+        if user_id:
 
-            raise HTTPException(
-                status_code=403,
-                detail="Access denied"
-            )
+            if int(user_id) != order.user_id:
+
+                raise HTTPException(
+                    status_code=403,
+                    detail="Access denied"
+                )
 
         return {
             "id": order.id,
@@ -460,7 +446,6 @@ def get_order(
     finally:
 
         db.close()
-
 
 # =========================
 # UPDATE ORDER STATUS
