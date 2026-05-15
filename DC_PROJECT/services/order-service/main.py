@@ -7,13 +7,22 @@ import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import Column, DateTime, Float, Integer, String, create_engine
+from sqlalchemy import (
+    Column,
+    DateTime,
+    Float,
+    Integer,
+    String,
+    create_engine
+)
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 app = FastAPI(title="Order Service")
 
-# ---------------- CORS ----------------
+# =========================
+# CORS
+# =========================
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,7 +34,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------------- ENV ----------------
+# =========================
+# ENV
+# =========================
 
 DB_HOST = os.getenv("ORDER_DB_HOST")
 DB_PORT = os.getenv("ORDER_DB_PORT", "3306")
@@ -41,7 +52,9 @@ DATABASE_URL = (
     f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 )
 
-# ---------------- DATABASE ----------------
+# =========================
+# DATABASE
+# =========================
 
 engine = create_engine(
     DATABASE_URL,
@@ -57,40 +70,62 @@ SessionLocal = sessionmaker(
 
 Base = declarative_base()
 
-# ---------------- MODELS ----------------
-
+# =========================
+# MODELS
+# =========================
 
 class Order(Base):
+
     __tablename__ = "orders"
 
-    id = Column(Integer, primary_key=True)
+    id = Column(
+        Integer,
+        primary_key=True
+    )
+
     user_id = Column(Integer)
-    product_id = Column(String(100))
+
+    product_id = Column(
+        String(100)
+    )
+
     quantity = Column(Integer)
+
     total_price = Column(Float)
 
-    status = Column(String(50))
+    status = Column(
+        String(50)
+    )
 
-    transaction_id = Column(String(100))
+    transaction_id = Column(
+        String(100),
+        nullable=True
+    )
 
     created_at = Column(
         DateTime,
         default=datetime.utcnow
     )
 
+# =========================
+# SCHEMAS
+# =========================
 
 class OrderCreate(BaseModel):
+
     user_id: int
     product_id: str
     quantity: int
 
 
 class OrderUpdate(BaseModel):
+
     status: str
-    transaction_id: str
+    transaction_id: Optional[str] = None
 
-
-# ---------------- STARTUP ----------------
+# =========================
+# STARTUP
+# =========================
 
 @app.on_event("startup")
 def startup():
@@ -109,12 +144,16 @@ def startup():
 
         except OperationalError as e:
 
-            print("DB connection failed:", e)
+            print(
+                "DB connection failed:",
+                e
+            )
 
             sleep(2)
 
-
-# ---------------- HEALTH ----------------
+# =========================
+# HEALTH
+# =========================
 
 @app.get("/health")
 def health():
@@ -124,13 +163,20 @@ def health():
         "service": "order-service"
     }
 
-
-# ---------------- CREATE ORDER ----------------
+# =========================
+# CREATE ORDER
+# =========================
 
 @app.post("/orders")
-async def create_order(data: OrderCreate):
+async def create_order(
+    data: OrderCreate
+):
+
+    db = SessionLocal()
 
     try:
+
+        # ---------------- GET PRODUCT ----------------
 
         async with httpx.AsyncClient(
             timeout=20
@@ -141,6 +187,7 @@ async def create_order(data: OrderCreate):
             )
 
         if product_res.status_code != 200:
+
             raise HTTPException(
                 status_code=404,
                 detail="Product not found"
@@ -148,26 +195,43 @@ async def create_order(data: OrderCreate):
 
         product = product_res.json()
 
+        # ---------------- CHECK STOCK ----------------
+
         if product["stock"] < data.quantity:
+
             raise HTTPException(
                 status_code=400,
                 detail="Not enough stock"
             )
 
+        # ---------------- UPDATE STOCK ----------------
+
         updated_product = product.copy()
 
         updated_product["stock"] -= data.quantity
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(
+            timeout=20
+        ) as client:
 
-            await client.put(
+            update_res = await client.put(
                 f"{PRODUCT_SERVICE_URL}/products/{data.product_id}",
                 json=updated_product
             )
 
-        total = product["price"] * data.quantity
+        if update_res.status_code >= 400:
 
-        db = SessionLocal()
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to update stock"
+            )
+
+        # ---------------- CREATE ORDER ----------------
+
+        total = (
+            product["price"] *
+            data.quantity
+        )
 
         order = Order(
             user_id=data.user_id,
@@ -183,7 +247,7 @@ async def create_order(data: OrderCreate):
 
         db.refresh(order)
 
-        db.close()
+        # ---------------- PROCESS PAYMENT ----------------
 
         async with httpx.AsyncClient(
             timeout=20
@@ -206,26 +270,37 @@ async def create_order(data: OrderCreate):
             "status": order.status
         }
 
+    except HTTPException:
+        raise
+
     except Exception as e:
 
-        print("CREATE ORDER ERROR:", e)
+        print(
+            "CREATE ORDER ERROR:",
+            e
+        )
 
         raise HTTPException(
             status_code=500,
             detail=str(e)
         )
 
+    finally:
 
-# ---------------- GET ALL ORDERS ----------------
+        db.close()
+
+# =========================
+# GET ALL ORDERS
+# =========================
 
 @app.get("/orders")
 def get_orders(
     user_id: Optional[int] = Query(None)
 ):
 
-    try:
+    db = SessionLocal()
 
-        db = SessionLocal()
+    try:
 
         query = db.query(Order)
 
@@ -248,91 +323,126 @@ def get_orders(
                 "quantity": o.quantity,
                 "total_price": o.total_price,
                 "status": o.status,
+                "transaction_id": o.transaction_id,
+                "created_at": o.created_at
             }
 
             for o in orders
 
         ]
 
-        db.close()
-
         return result
 
     except Exception as e:
 
-        print("GET ORDERS ERROR:", e)
+        print(
+            "GET ORDERS ERROR:",
+            e
+        )
 
         raise HTTPException(
             status_code=500,
             detail=str(e)
         )
 
+    finally:
 
-# ---------------- GET SINGLE ORDER ----------------
+        db.close()
+
+# =========================
+# GET SINGLE ORDER
+# =========================
 
 @app.get("/orders/{order_id}")
 def get_order(order_id: int):
 
     db = SessionLocal()
 
-    order = db.query(
-        Order
-    ).filter(
-        Order.id == order_id
-    ).first()
+    try:
 
-    db.close()
+        order = db.query(
+            Order
+        ).filter(
+            Order.id == order_id
+        ).first()
 
-    if not order:
+        if not order:
 
-        raise HTTPException(
-            status_code=404,
-            detail="Order not found"
-        )
+            raise HTTPException(
+                status_code=404,
+                detail="Order not found"
+            )
 
-    return {
-        "id": order.id,
-        "user_id": order.user_id,
-        "product_id": order.product_id,
-        "quantity": order.quantity,
-        "total_price": order.total_price,
-        "status": order.status
-    }
+        return {
+            "id": order.id,
+            "user_id": order.user_id,
+            "product_id": order.product_id,
+            "quantity": order.quantity,
+            "total_price": order.total_price,
+            "status": order.status,
+            "transaction_id": order.transaction_id,
+            "created_at": order.created_at
+        }
 
+    finally:
 
-# ---------------- UPDATE STATUS ----------------
+        db.close()
+
+# =========================
+# UPDATE ORDER STATUS
+# =========================
 
 @app.patch("/orders/{order_id}/status")
 def update_order_status(
-        order_id: int,
-        data: OrderUpdate
+    order_id: int,
+    data: OrderUpdate
 ):
 
     db = SessionLocal()
 
-    order = db.query(
-        Order
-    ).filter(
-        Order.id == order_id
-    ).first()
+    try:
 
-    if not order:
+        order = db.query(
+            Order
+        ).filter(
+            Order.id == order_id
+        ).first()
 
-        db.close()
+        if not order:
 
-        raise HTTPException(
-            status_code=404,
-            detail="Order not found"
+            raise HTTPException(
+                status_code=404,
+                detail="Order not found"
+            )
+
+        order.status = data.status
+
+        if data.transaction_id:
+
+            order.transaction_id = (
+                data.transaction_id
+            )
+
+        db.commit()
+
+        return {
+            "message": "updated",
+            "order_id": order.id,
+            "status": order.status
+        }
+
+    except Exception as e:
+
+        print(
+            "UPDATE ORDER ERROR:",
+            e
         )
 
-    order.status = data.status
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
-    order.transaction_id = data.transaction_id
+    finally:
 
-    db.commit()
-
-    db.close()
-
-    return {
-        "message": "updated"
-    }
+        db.close()

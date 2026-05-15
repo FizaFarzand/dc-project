@@ -36,6 +36,7 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"]
 )
+
 @app.options("/{full_path:path}")
 async def options_handler(full_path: str):
     return {"message": "ok"}
@@ -111,7 +112,8 @@ async def forward(
                 method=method,
                 url=url,
                 headers=headers,
-                json=json_body
+                json=json_body,
+                params=dict(request.query_params)
             )
 
         if response.status_code >= 400:
@@ -134,6 +136,9 @@ async def forward(
             if response.content
             else {}
         )
+
+    except HTTPException:
+        raise
 
     except Exception as e:
 
@@ -160,7 +165,7 @@ api = APIRouter(
 def api_health():
 
     return {
-        "status":"ok"
+        "status": "ok"
     }
 
 # =========================
@@ -172,7 +177,7 @@ async def register(
     request: Request
 ):
 
-    body=await request.json()
+    body = await request.json()
 
     return await forward(
         "POST",
@@ -184,10 +189,10 @@ async def register(
 
 @api.post("/users/login")
 async def login(
-    request:Request
+    request: Request
 ):
 
-    body=await request.json()
+    body = await request.json()
 
     return await forward(
         "POST",
@@ -199,8 +204,8 @@ async def login(
 
 @api.get("/users/me")
 async def me(
-    request:Request,
-    authorization:Optional[str]=Header(None)
+    request: Request,
+    authorization: Optional[str] = Header(None)
 ):
 
     decode_token(
@@ -213,14 +218,38 @@ async def me(
         request
     )
 
+
+@api.get("/users")
+async def list_users(
+    request: Request,
+    authorization: Optional[str] = Header(None)
+):
+
+    payload = decode_token(
+        authorization
+    )
+
+    if payload.get("role") != "admin":
+
+        raise HTTPException(
+            status_code=403,
+            detail="Admin access required"
+        )
+
+    return await forward(
+        "GET",
+        f"{USER_SERVICE_URL}/users",
+        request
+    )
+
 # =========================
 # PRODUCTS
 # =========================
 
 @api.get("/products")
 async def products(
-    request:Request,
-    authorization:Optional[str]=Header(None)
+    request: Request,
+    authorization: Optional[str] = Header(None)
 ):
 
     decode_token(
@@ -236,9 +265,9 @@ async def products(
 
 @api.get("/products/{product_id}")
 async def product(
-    product_id:str,
-    request:Request,
-    authorization:Optional[str]=Header(None)
+    product_id: str,
+    request: Request,
+    authorization: Optional[str] = Header(None)
 ):
 
     decode_token(
@@ -251,23 +280,103 @@ async def product(
         request
     )
 
+
+@api.post("/products")
+async def create_product(
+    request: Request,
+    authorization: Optional[str] = Header(None)
+):
+
+    payload = decode_token(
+        authorization
+    )
+
+    if payload.get("role") != "admin":
+
+        raise HTTPException(
+            status_code=403,
+            detail="Admin access required"
+        )
+
+    body = await request.json()
+
+    return await forward(
+        "POST",
+        f"{PRODUCT_SERVICE_URL}/products",
+        request,
+        body
+    )
+
+
+@api.put("/products/{product_id}")
+async def update_product(
+    product_id: str,
+    request: Request,
+    authorization: Optional[str] = Header(None)
+):
+
+    payload = decode_token(
+        authorization
+    )
+
+    if payload.get("role") != "admin":
+
+        raise HTTPException(
+            status_code=403,
+            detail="Admin access required"
+        )
+
+    body = await request.json()
+
+    return await forward(
+        "PUT",
+        f"{PRODUCT_SERVICE_URL}/products/{product_id}",
+        request,
+        body
+    )
+
+
+@api.delete("/products/{product_id}")
+async def delete_product(
+    product_id: str,
+    request: Request,
+    authorization: Optional[str] = Header(None)
+):
+
+    payload = decode_token(
+        authorization
+    )
+
+    if payload.get("role") != "admin":
+
+        raise HTTPException(
+            status_code=403,
+            detail="Admin access required"
+        )
+
+    return await forward(
+        "DELETE",
+        f"{PRODUCT_SERVICE_URL}/products/{product_id}",
+        request
+    )
+
 # =========================
 # ORDERS
 # =========================
 
 @api.post("/orders")
 async def create_order(
-    request:Request,
-    authorization:Optional[str]=Header(None)
+    request: Request,
+    authorization: Optional[str] = Header(None)
 ):
 
-    payload=decode_token(
+    payload = decode_token(
         authorization
     )
 
-    body=await request.json()
+    body = await request.json()
 
-    body["user_id"]=payload.get(
+    body["user_id"] = payload.get(
         "user_id"
     )
 
@@ -281,25 +390,25 @@ async def create_order(
 
 @api.get("/orders")
 async def list_orders(
-    request:Request,
-    authorization:Optional[str]=Header(None)
+    request: Request,
+    authorization: Optional[str] = Header(None)
 ):
 
-    payload=decode_token(
+    payload = decode_token(
         authorization
     )
 
-    user_id=payload.get(
+    user_id = payload.get(
         "user_id"
     )
 
-    role=payload.get(
+    role = payload.get(
         "role"
     )
 
-    url=f"{ORDER_SERVICE_URL}/orders"
+    url = f"{ORDER_SERVICE_URL}/orders"
 
-    if role!="admin":
+    if role != "admin":
 
         url += (
             f"?user_id={user_id}"
@@ -314,9 +423,9 @@ async def list_orders(
 
 @api.get("/orders/{order_id}")
 async def get_order(
-    order_id:int,
-    request:Request,
-    authorization:Optional[str]=Header(None)
+    order_id: int,
+    request: Request,
+    authorization: Optional[str] = Header(None)
 ):
 
     decode_token(
@@ -329,6 +438,33 @@ async def get_order(
         request
     )
 
+
+@api.patch("/orders/{order_id}/status")
+async def update_order_status(
+    order_id: int,
+    request: Request,
+    authorization: Optional[str] = Header(None)
+):
+
+    payload = decode_token(
+        authorization
+    )
+
+    if payload.get("role") != "admin":
+
+        raise HTTPException(
+            status_code=403,
+            detail="Admin access required"
+        )
+
+    body = await request.json()
+
+    return await forward(
+        "PATCH",
+        f"{ORDER_SERVICE_URL}/orders/{order_id}/status",
+        request,
+        body
+    )
 
 # =========================
 # REGISTER ROUTER
@@ -346,6 +482,6 @@ app.include_router(
 def health():
 
     return {
-        "status":"ok",
-        "service":"gateway"
+        "status": "ok",
+        "service": "gateway"
     }
