@@ -30,14 +30,15 @@ FRONTEND_URL = os.getenv(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        FRONTEND_URL,
-        "https://dc-project-gamma.vercel.app"
-    ],
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
+@app.options("/{full_path:path}")
+async def options_handler(full_path: str):
+    return {"message": "ok"}
 
 # =========================
 # JWT
