@@ -7,7 +7,6 @@ import httpx
 from fastapi import (
     FastAPI,
     HTTPException,
-    Query,
     Header
 )
 from fastapi.middleware.cors import CORSMiddleware
@@ -99,24 +98,17 @@ class Order(Base):
 
     __tablename__ = "orders"
 
-    id = Column(
-        Integer,
-        primary_key=True
-    )
+    id = Column(Integer, primary_key=True)
 
     user_id = Column(Integer)
 
-    product_id = Column(
-        String(100)
-    )
+    product_id = Column(String(100))
 
     quantity = Column(Integer)
 
     total_price = Column(Float)
 
-    status = Column(
-        String(50)
-    )
+    status = Column(String(50))
 
     transaction_id = Column(
         String(100),
@@ -127,6 +119,7 @@ class Order(Base):
         DateTime,
         default=datetime.utcnow
     )
+
 
 # =========================
 # SCHEMAS
@@ -142,6 +135,7 @@ class OrderUpdate(BaseModel):
 
     status: str
     transaction_id: Optional[str] = None
+
 
 # =========================
 # AUTH
@@ -167,13 +161,16 @@ def get_current_user(
             algorithms=[JWT_ALGORITHM]
         )
 
-        user_id = (
-            decoded.get("user_id")
-            or decoded.get("id")
-            or decoded.get("sub")
-        )
+        return {
+            "user_id":
+                decoded.get("user_id"),
 
-        return user_id
+            "role":
+                decoded.get(
+                    "role",
+                    "customer"
+                )
+        }
 
     except Exception as e:
 
@@ -183,6 +180,7 @@ def get_current_user(
         )
 
         return None
+
 
 # =========================
 # STARTUP
@@ -199,7 +197,9 @@ def startup():
                 bind=engine
             )
 
-            print("Database connected")
+            print(
+                "Database connected"
+            )
 
             break
 
@@ -212,6 +212,7 @@ def startup():
 
             sleep(2)
 
+
 # =========================
 # HEALTH
 # =========================
@@ -223,6 +224,7 @@ def health():
         "status": "ok",
         "service": "order-service"
     }
+
 
 # =========================
 # CREATE ORDER
@@ -238,11 +240,11 @@ async def create_order(
 
     try:
 
-        user_id = get_current_user(
+        current_user = get_current_user(
             authorization
         )
 
-        if not user_id:
+        if not current_user:
 
             raise HTTPException(
                 status_code=401,
@@ -286,20 +288,13 @@ async def create_order(
                 json=updated_product
             )
 
-        if update_res.status_code >= 400:
-
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to update stock"
-            )
-
         total = (
-            product["price"] *
-            data.quantity
+            product["price"]
+            * data.quantity
         )
 
         order = Order(
-            user_id=int(user_id),
+            user_id=current_user["user_id"],
             product_id=data.product_id,
             quantity=data.quantity,
             total_price=total,
@@ -333,24 +328,10 @@ async def create_order(
             "status": order.status
         }
 
-    except HTTPException:
-        raise
-
-    except Exception as e:
-
-        print(
-            "CREATE ORDER ERROR:",
-            e
-        )
-
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
-
     finally:
 
         db.close()
+
 
 # =========================
 # GET ALL ORDERS
@@ -365,20 +346,27 @@ def get_orders(
 
     try:
 
-        user_id = get_current_user(
+        current_user = get_current_user(
             authorization
         )
 
-        if not user_id:
+        if not current_user:
 
             raise HTTPException(
                 status_code=401,
                 detail="Unauthorized"
             )
 
-        orders = db.query(Order).filter(
-            Order.user_id == int(user_id)
-        ).order_by(
+        query = db.query(Order)
+
+        if current_user["role"] != "admin":
+
+            query = query.filter(
+                Order.user_id ==
+                current_user["user_id"]
+            )
+
+        orders = query.order_by(
             Order.created_at.desc()
         ).all()
 
@@ -396,11 +384,13 @@ def get_orders(
             }
 
             for o in orders
+
         ]
 
     finally:
 
         db.close()
+
 
 # =========================
 # GET SINGLE ORDER
@@ -416,11 +406,11 @@ def get_order(
 
     try:
 
-        user_id = get_current_user(
+        current_user = get_current_user(
             authorization
         )
 
-        if not user_id:
+        if not current_user:
 
             raise HTTPException(
                 status_code=401,
@@ -440,7 +430,12 @@ def get_order(
                 detail="Order not found"
             )
 
-        if int(user_id) != order.user_id:
+        if (
+            current_user["role"] != "admin"
+            and
+            current_user["user_id"]
+            != order.user_id
+        ):
 
             raise HTTPException(
                 status_code=403,
@@ -461,6 +456,7 @@ def get_order(
     finally:
 
         db.close()
+
 
 # =========================
 # UPDATE ORDER STATUS
