@@ -4,8 +4,14 @@ from time import sleep
 from typing import Optional
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    Query,
+    Header
+)
 from fastapi.middleware.cors import CORSMiddleware
+from jose import jwt, JWTError
 from pydantic import BaseModel
 from sqlalchemy import (
     Column,
@@ -44,8 +50,23 @@ DB_NAME = os.getenv("ORDER_DB_NAME")
 DB_USER = os.getenv("ORDER_DB_USER")
 DB_PASSWORD = os.getenv("ORDER_DB_PASSWORD")
 
-PRODUCT_SERVICE_URL = os.getenv("PRODUCT_SERVICE_URL")
-PAYMENT_SERVICE_URL = os.getenv("PAYMENT_SERVICE_URL")
+PRODUCT_SERVICE_URL = os.getenv(
+    "PRODUCT_SERVICE_URL"
+)
+
+PAYMENT_SERVICE_URL = os.getenv(
+    "PAYMENT_SERVICE_URL"
+)
+
+JWT_SECRET = os.getenv(
+    "JWT_SECRET",
+    "supersecretkey"
+)
+
+JWT_ALGORITHM = os.getenv(
+    "JWT_ALGORITHM",
+    "HS256"
+)
 
 DATABASE_URL = (
     f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}"
@@ -107,6 +128,7 @@ class Order(Base):
         default=datetime.utcnow
     )
 
+
 # =========================
 # SCHEMAS
 # =========================
@@ -122,6 +144,52 @@ class OrderUpdate(BaseModel):
 
     status: str
     transaction_id: Optional[str] = None
+
+
+# =========================
+# AUTH
+# =========================
+
+def get_current_user(
+    authorization: str = Header(None)
+):
+
+    if not authorization:
+
+        raise HTTPException(
+            status_code=401,
+            detail="Missing token"
+        )
+
+    token = authorization.replace(
+        "Bearer ",
+        ""
+    )
+
+    try:
+
+        decoded = jwt.decode(
+            token,
+            JWT_SECRET,
+            algorithms=[JWT_ALGORITHM]
+        )
+
+        return {
+            "user_id": decoded.get(
+                "user_id"
+            ),
+            "role": decoded.get(
+                "role"
+            )
+        }
+
+    except JWTError:
+
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid token"
+        )
+
 
 # =========================
 # STARTUP
@@ -163,6 +231,7 @@ def health():
         "service": "order-service"
     }
 
+
 # =========================
 # CREATE ORDER
 # =========================
@@ -175,8 +244,6 @@ async def create_order(
     db = SessionLocal()
 
     try:
-
-        # ---------------- GET PRODUCT ----------------
 
         async with httpx.AsyncClient(
             timeout=20
@@ -195,16 +262,12 @@ async def create_order(
 
         product = product_res.json()
 
-        # ---------------- CHECK STOCK ----------------
-
         if product["stock"] < data.quantity:
 
             raise HTTPException(
                 status_code=400,
                 detail="Not enough stock"
             )
-
-        # ---------------- UPDATE STOCK ----------------
 
         updated_product = product.copy()
 
@@ -226,8 +289,6 @@ async def create_order(
                 detail="Failed to update stock"
             )
 
-        # ---------------- CREATE ORDER ----------------
-
         total = (
             product["price"] *
             data.quantity
@@ -246,8 +307,6 @@ async def create_order(
         db.commit()
 
         db.refresh(order)
-
-        # ---------------- PROCESS PAYMENT ----------------
 
         async with httpx.AsyncClient(
             timeout=20
@@ -289,25 +348,31 @@ async def create_order(
 
         db.close()
 
+
 # =========================
 # GET ALL ORDERS
 # =========================
 
 @app.get("/orders")
 def get_orders(
-    user_id: Optional[int] = Query(None)
+    authorization: str = Header(None)
 ):
 
     db = SessionLocal()
 
     try:
 
+        current_user = get_current_user(
+            authorization
+        )
+
         query = db.query(Order)
 
-        if user_id:
+        if current_user["role"] != "admin":
 
             query = query.filter(
-                Order.user_id == user_id
+                Order.user_id ==
+                current_user["user_id"]
             )
 
         orders = query.order_by(
@@ -333,32 +398,28 @@ def get_orders(
 
         return result
 
-    except Exception as e:
-
-        print(
-            "GET ORDERS ERROR:",
-            e
-        )
-
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
-
     finally:
 
         db.close()
+
 
 # =========================
 # GET SINGLE ORDER
 # =========================
 
 @app.get("/orders/{order_id}")
-def get_order(order_id: int):
+def get_order(
+    order_id: int,
+    authorization: str = Header(None)
+):
 
     db = SessionLocal()
 
     try:
+
+        current_user = get_current_user(
+            authorization
+        )
 
         order = db.query(
             Order
@@ -371,6 +432,18 @@ def get_order(order_id: int):
             raise HTTPException(
                 status_code=404,
                 detail="Order not found"
+            )
+
+        if (
+            current_user["role"] != "admin"
+            and
+            order.user_id !=
+            current_user["user_id"]
+        ):
+
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied"
             )
 
         return {
@@ -387,6 +460,7 @@ def get_order(order_id: int):
     finally:
 
         db.close()
+
 
 # =========================
 # UPDATE ORDER STATUS
