@@ -134,7 +134,6 @@ class Order(Base):
 
 class OrderCreate(BaseModel):
 
-    user_id: int
     product_id: str
     quantity: int
 
@@ -185,7 +184,6 @@ def get_current_user(
 
         return None
 
-
 # =========================
 # STARTUP
 # =========================
@@ -232,12 +230,24 @@ def health():
 
 @app.post("/orders")
 async def create_order(
-    data: OrderCreate
+    data: OrderCreate,
+    authorization: str = Header(...)
 ):
 
     db = SessionLocal()
 
     try:
+
+        user_id = get_current_user(
+            authorization
+        )
+
+        if not user_id:
+
+            raise HTTPException(
+                status_code=401,
+                detail="Unauthorized"
+            )
 
         async with httpx.AsyncClient(
             timeout=20
@@ -289,7 +299,7 @@ async def create_order(
         )
 
         order = Order(
-            user_id=data.user_id,
+            user_id=int(user_id),
             product_id=data.product_id,
             quantity=data.quantity,
             total_price=total,
@@ -348,7 +358,7 @@ async def create_order(
 
 @app.get("/orders")
 def get_orders(
-    authorization: Optional[str] = Header(None)
+    authorization: str = Header(...)
 ):
 
     db = SessionLocal()
@@ -359,16 +369,16 @@ def get_orders(
             authorization
         )
 
-        query = db.query(Order)
+        if not user_id:
 
-        if user_id:
-
-            query = query.filter(
-                Order.user_id ==
-                int(user_id)
+            raise HTTPException(
+                status_code=401,
+                detail="Unauthorized"
             )
 
-        orders = query.order_by(
+        orders = db.query(Order).filter(
+            Order.user_id == int(user_id)
+        ).order_by(
             Order.created_at.desc()
         ).all()
 
@@ -399,7 +409,7 @@ def get_orders(
 @app.get("/orders/{order_id}")
 def get_order(
     order_id: int,
-    authorization: Optional[str] = Header(None)
+    authorization: str = Header(...)
 ):
 
     db = SessionLocal()
@@ -409,6 +419,13 @@ def get_order(
         user_id = get_current_user(
             authorization
         )
+
+        if not user_id:
+
+            raise HTTPException(
+                status_code=401,
+                detail="Unauthorized"
+            )
 
         order = db.query(
             Order
@@ -423,14 +440,12 @@ def get_order(
                 detail="Order not found"
             )
 
-        if user_id:
+        if int(user_id) != order.user_id:
 
-            if int(user_id) != order.user_id:
-
-                raise HTTPException(
-                    status_code=403,
-                    detail="Access denied"
-                )
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied"
+            )
 
         return {
             "id": order.id,
