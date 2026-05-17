@@ -13,12 +13,13 @@ const productImages: Record<string, string> = {
   watch: "/images/watch.jpg",
   phone: "/images/phone.jpg",
   headphones: "/images/headphone.jpg",
-  "gaming mouse": "/images/gaming-mouse.jpg",
-  "bluetooth speaker": "/images/speaker.jpg",
-  "laptop stand": "/images/laptop-stand.jpg",
-  tablet: "/images/tablet.jpg",
-  "smart tv": "/images/smart-tv.jpg",
+  "Gaming Mouse": "/images/gaming-mouse.jpg",
+  "Bluetooth Speaker": "/images/speaker.jpg",
+  "Laptop Stand": "/images/laptop-stand.jpg",
+  Tablet: "/images/tablet.jpg",
+  "Smart TV": "/images/smart-tv.jpg",
 };
+
 
 export function Products() {
   const [browse, setBrowse] = useState<PaginatedProducts | null>(null);
