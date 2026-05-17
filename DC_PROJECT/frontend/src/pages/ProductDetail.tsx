@@ -16,6 +16,7 @@ const productImages: Record<string, string> = {
   "Smart TV": "/images/smart-tv.jpg",
 };
 
+
 const fallbackImage = "/images/phone.jpg";
 
 export function ProductDetail() {

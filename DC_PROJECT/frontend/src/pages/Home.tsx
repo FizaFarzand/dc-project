@@ -32,6 +32,39 @@ const featuredProducts = [
     price: "$1800",
     image: "/images/camera.jpg",
   },
+
+  {
+    name: "Gaming Mouse",
+    price: "$49.99",
+    image: "/images/gaming-mouse.jpg",
+  },
+
+
+  {
+    name: "Bluetooth Speaker",
+    price: "$79.99",
+    image: "/images/speaker.jpg",
+  },
+
+  {
+    name: "Laptop Stand",
+    price: "$34.99",
+    image: "/images/laptop-stand.jpg",
+  },
+
+  {
+    name: "Tablet",
+    price: "$299.99",
+    image: "/images/tablet.jpg",
+  },
+
+  {
+    name: "Smart TV",
+    price: "$699.99",
+    image: "/images/smart-tv.jpg",
+  }
+
+
 ];
 
 export function Home() {
