@@ -35,12 +35,16 @@ DATABASE_URL = os.getenv("MYSQL_PUBLIC_URL")
 if not DATABASE_URL:
     raise Exception("MYSQL_PUBLIC_URL is missing")
 
+# FIX: Railway MySQL requires pymysql format
+if DATABASE_URL.startswith("mysql://"):
+    DATABASE_URL = DATABASE_URL.replace(
+        "mysql://",
+        "mysql+pymysql://",
+        1
+    )
+
 JWT_SECRET = os.getenv("JWT_SECRET", "supersecretkey")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-
-# IMPORTANT:
-# Railway public URL must use:
-# mysql+pymysql://
 
 # ---------------- DB ----------------
 engine = create_engine(
@@ -178,7 +182,6 @@ def register(data: RegisterRequest):
 
     except IntegrityError:
         db.rollback()
-
         raise HTTPException(
             status_code=400,
             detail="Email already exists"
@@ -186,7 +189,6 @@ def register(data: RegisterRequest):
 
     except Exception as e:
         db.rollback()
-
         raise HTTPException(
             status_code=500,
             detail=str(e)
@@ -233,45 +235,49 @@ def login(data: LoginRequest):
 # ---------------- ME ----------------
 @app.get("/me")
 def me(authorization: str = Header(None)):
-    if not authorization:
-        raise HTTPException(
-            status_code=401,
-            detail="Missing token"
-        )
-
-    token = authorization.replace("Bearer ", "")
+    db = SessionLocal()
 
     try:
-        decoded = jwt.decode(
-            token,
-            JWT_SECRET,
-            algorithms=[JWT_ALGORITHM]
-        )
-
-        user_id = decoded.get("user_id")
-
-        db = SessionLocal()
-
-        user = db.query(User).filter(User.id == user_id).first()
-
-        if not user:
+        if not authorization:
             raise HTTPException(
-                status_code=404,
-                detail="User not found"
+                status_code=401,
+                detail="Missing token"
             )
 
-        return {
-            "user_id": user.id,
-            "name": user.name,
-            "email": user.email,
-            "role": user.role,
-        }
+        token = authorization.replace("Bearer ", "")
 
-    except JWTError:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid token"
-        )
+        try:
+            decoded = jwt.decode(
+                token,
+                JWT_SECRET,
+                algorithms=[JWT_ALGORITHM]
+            )
+
+            user_id = decoded.get("user_id")
+
+            user = db.query(User).filter(User.id == user_id).first()
+
+            if not user:
+                raise HTTPException(
+                    status_code=404,
+                    detail="User not found"
+                )
+
+            return {
+                "user_id": user.id,
+                "name": user.name,
+                "email": user.email,
+                "role": user.role,
+            }
+
+        except JWTError:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid token"
+            )
+
+    finally:
+        db.close()
 
 # ---------------- USERS ----------------
 @app.get("/users")
