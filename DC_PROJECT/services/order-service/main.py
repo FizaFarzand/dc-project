@@ -43,11 +43,14 @@ app.add_middleware(
 # ENV
 # =========================
 
-DB_HOST = os.getenv("ORDER_DB_HOST")
-DB_PORT = os.getenv("ORDER_DB_PORT", "3306")
-DB_NAME = os.getenv("ORDER_DB_NAME")
-DB_USER = os.getenv("ORDER_DB_USER")
-DB_PASSWORD = os.getenv("ORDER_DB_PASSWORD")
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if DATABASE_URL.startswith("mysql://"):
+    DATABASE_URL = DATABASE_URL.replace(
+        "mysql://",
+        "mysql+pymysql://",
+        1
+    )
 
 PRODUCT_SERVICE_URL = os.getenv(
     "PRODUCT_SERVICE_URL"
@@ -67,11 +70,6 @@ JWT_ALGORITHM = os.getenv(
     "HS256"
 )
 
-DATABASE_URL = (
-    f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}"
-    f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-)
-
 # =========================
 # DATABASE
 # =========================
@@ -79,7 +77,8 @@ DATABASE_URL = (
 engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,
-    pool_recycle=300
+    pool_recycle=300,
+    pool_timeout=30
 )
 
 SessionLocal = sessionmaker(
@@ -120,7 +119,6 @@ class Order(Base):
         default=datetime.utcnow
     )
 
-
 # =========================
 # SCHEMAS
 # =========================
@@ -135,7 +133,6 @@ class OrderUpdate(BaseModel):
 
     status: str
     transaction_id: Optional[str] = None
-
 
 # =========================
 # AUTH
@@ -181,7 +178,6 @@ def get_current_user(
 
         return None
 
-
 # =========================
 # STARTUP
 # =========================
@@ -212,7 +208,6 @@ def startup():
 
             sleep(2)
 
-
 # =========================
 # HEALTH
 # =========================
@@ -224,7 +219,6 @@ def health():
         "status": "ok",
         "service": "order-service"
     }
-
 
 # =========================
 # CREATE ORDER
@@ -283,7 +277,7 @@ async def create_order(
             timeout=20
         ) as client:
 
-            update_res = await client.put(
+            await client.put(
                 f"{PRODUCT_SERVICE_URL}/products/{data.product_id}",
                 json=updated_product
             )
@@ -311,13 +305,20 @@ async def create_order(
             timeout=20
         ) as client:
 
-            await client.post(
+            payment_response = await client.post(
                 f"{PAYMENT_SERVICE_URL}/payments/process",
                 json={
                     "order_id": order.id,
                     "amount": total
                 }
             )
+
+            print(
+                "Payment response:",
+                payment_response.status_code
+            )
+
+        db.refresh(order)
 
         return {
             "id": order.id,
@@ -328,10 +329,21 @@ async def create_order(
             "status": order.status
         }
 
+    except Exception as e:
+
+        print(
+            "CREATE ORDER ERROR:",
+            e
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
     finally:
 
         db.close()
-
 
 # =========================
 # GET ALL ORDERS
@@ -391,7 +403,6 @@ def get_orders(
 
         db.close()
 
-
 # =========================
 # GET SINGLE ORDER
 # =========================
@@ -399,7 +410,7 @@ def get_orders(
 @app.get("/orders/{order_id}")
 def get_order(
     order_id: int,
-    authorization: str = Header(...)
+    authorization: Optional[str] = Header(None)
 ):
 
     db = SessionLocal()
@@ -410,7 +421,7 @@ def get_order(
             authorization
         )
 
-        if not current_user:
+        if authorization and not current_user:
 
             raise HTTPException(
                 status_code=401,
@@ -430,18 +441,6 @@ def get_order(
                 detail="Order not found"
             )
 
-        if (
-            current_user["role"] != "admin"
-            and
-            current_user["user_id"]
-            != order.user_id
-        ):
-
-            raise HTTPException(
-                status_code=403,
-                detail="Access denied"
-            )
-
         return {
             "id": order.id,
             "user_id": order.user_id,
@@ -456,7 +455,6 @@ def get_order(
     finally:
 
         db.close()
-
 
 # =========================
 # UPDATE ORDER STATUS
@@ -494,6 +492,8 @@ def update_order_status(
             )
 
         db.commit()
+
+        db.refresh(order)
 
         return {
             "message": "updated",
