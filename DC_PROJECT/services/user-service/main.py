@@ -32,10 +32,11 @@ app.add_middleware(
 # ---------------- ENV ----------------
 DATABASE_URL = os.getenv("MYSQL_PUBLIC_URL")
 
+# FIX 1: prevent crash if env missing
 if not DATABASE_URL:
     raise Exception("MYSQL_PUBLIC_URL is missing")
 
-# FIX: Railway MySQL requires pymysql format
+# FIX 2: Railway MySQL format fix (CRITICAL)
 if DATABASE_URL.startswith("mysql://"):
     DATABASE_URL = DATABASE_URL.replace(
         "mysql://",
